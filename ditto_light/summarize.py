@@ -2,13 +2,32 @@ import numpy as np
 import csv
 import sys
 import os
+import nltk
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from collections import Counter
 from nltk.corpus import stopwords
 
-from .dataset import get_tokenizer
 
+from .dataset import get_tokenizer
+# from dataset import get_tokenizer
+
+
+nltk.download('stopwords') # 可能会遇到nltk_data语料下载错误的情况，可以尝试切换网络
+# 发生异常: LookupError
+
+# **********************************************************************
+#   Resource [93mstopwords[0m not found.
+#   Please use the NLTK Downloader to obtain the resource:
+
+#   [31m>>> import nltk
+#   >>> nltk.download('stopwords')
+#   [0m
+#   For more information see: https://www.nltk.org/data.html
+
+#   Attempted to load [93mcorpora/stopwords[0m
+
+# 语料库加载异常，建议按照提示添加代码，或者手动离线下载
 stopwords = set(stopwords.words('english'))
 
 class Summarizer:

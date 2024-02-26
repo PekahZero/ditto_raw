@@ -15,7 +15,7 @@ import traceback
 
 from torch.utils import data
 from tqdm import tqdm
-from apex import amp
+# from apex import amp
 from scipy.special import softmax
 
 from ditto_light.ditto import evaluate, DittoModel
@@ -289,8 +289,8 @@ def load_model(task, path, lm, use_gpu, fp16=True):
     model.load_state_dict(saved_state['model'])
     model = model.to(device)
 
-    if fp16 and 'cuda' in device:
-        model = amp.initialize(model, opt_level='O2')
+    # if fp16 and 'cuda' in device:
+    #     model = amp.initialize(model, opt_level='O2')
 
     return config, model
 
