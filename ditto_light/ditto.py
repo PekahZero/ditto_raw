@@ -10,7 +10,6 @@ import sklearn.metrics as metrics
 import argparse
 
 from .dataset import DittoDataset
-# from .dataset import DittoDataset
 from torch.utils import data
 from transformers import AutoModel, AdamW, get_linear_schedule_with_warmup
 from tensorboardX import SummaryWriter # conda install tensorboardX
