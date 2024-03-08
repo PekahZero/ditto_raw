@@ -55,6 +55,7 @@ if __name__=="__main__":
     configs = {conf['name'] : conf for conf in configs}
     config = configs[task]
 
+    # path
     trainset = config['trainset']
     validset = config['validset']
     testset = config['testset']

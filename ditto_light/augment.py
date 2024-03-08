@@ -32,6 +32,7 @@ class Augmenter(object):
             list of strings: the augmented tokens
             list of strings: the augmented labels
         """
+        # 随机删除一个子序列的 tokens 和对应的 labels。
         if 'del' in op:
             # insert padding to keep the length consistent
             # span_len = random.randint(1, 3)
@@ -39,8 +40,14 @@ class Augmenter(object):
             pos1, pos2 = self.sample_span(tokens, labels, span_len=span_len)
             if pos1 < 0:
                 return tokens, labels
-            new_tokens = tokens[:pos1] + tokens[pos2+1:]
-            new_labels = tokens[:pos1] + labels[pos2+1:]
+            # 保证[SEP]存在
+            if '[SEP]' not in tokens[:pos1] + tokens[pos2+1:]:
+                new_tokens, new_labels =  tokens, labels
+            else:
+                new_tokens = tokens[:pos1] + tokens[pos2+1:]
+                new_labels = tokens[:pos1] + labels[pos2+1:]
+            
+        # 随机交换 tokens 中的一个子序列的位置，并保持 labels 不变
         elif 'swap' in op:
             span_len = random.randint(2, 4)
             pos1, pos2 = self.sample_span(tokens, labels, span_len=span_len)
@@ -50,6 +57,7 @@ class Augmenter(object):
             random.shuffle(sub_arr)
             new_tokens = tokens[:pos1] + sub_arr + tokens[pos2+1:]
             new_labels = tokens[:pos1] + ['O'] * (pos2 - pos1 + 1) + labels[pos2+1:]
+        # 删除长度小于指定阈值的 tokens
         elif 'drop_len' in op:
             # drop tokens below a certain length
             all_lens = [len(token) for token, label in \
@@ -65,6 +73,7 @@ class Augmenter(object):
                     new_tokens.append(token)
                     new_labels.append(label)
             return new_tokens, new_labels
+        # 删除 tokens 中的特殊符号
         elif 'drop_sym' in op:
             def drop_sym(token):
                 return ''.join([ch if ch.isalnum() else ' ' for ch in token])
@@ -79,6 +88,7 @@ class Augmenter(object):
                     if d_token != '':
                         new_tokens.append(d_token)
                         new_labels.append(label)
+        # 删除左右两侧相同的 tokens
         elif 'drop_same' in op:
             left_token = set([])
             right_token = set([])
@@ -101,6 +111,7 @@ class Augmenter(object):
                     new_tokens.append(token)
                     new_labels.append(label)
             return new_tokens, new_labels
+        # 有一定概率随机删除 tokens
         elif 'drop_token' in op:
             new_tokens, new_labels = [], []
             for token, label in zip(tokens, labels):
@@ -108,12 +119,14 @@ class Augmenter(object):
                     new_tokens.append(token)
                     new_labels.append(label)
             return new_tokens, new_labels
+        # 在 tokens 中随机插入一个符号，并对 labels 进行相应调整
         elif 'ins' in op:
             pos = self.sample_position(tokens, labels)
             symbol = random.choice('-*.,#&')
             new_tokens = tokens[:pos] + [symbol] + tokens[pos:]
             new_labels = labels[:pos] + ['O'] + labels[pos:]
             return new_tokens, new_labels
+        # 在特殊标记 'COL' 之间随机追加一个子序列的 tokens 和对应的 labels
         elif 'append_col' in op:
             col_starts = [i for i in range(len(tokens)) if tokens[i] == 'COL']
             col_ends = [0] * len(col_starts)
@@ -158,8 +171,12 @@ class Augmenter(object):
                 return new_tokens, new_labels
             else:
                 new_tokens, new_labels = tokens, labels
+        # 删除长度小于等于指定长度的特殊标记 'COL' 之间的 tokens 和对应的 labels
         elif 'drop_col' in op:
+            # 找到所有[col]的起始位置
             col_starts = [i for i in range(len(tokens)) if tokens[i] == 'COL']
+            
+            # 计算每个 'COL' 区间的结束位置和长度
             col_ends = [0] * len(col_starts)
             col_lens = [0] * len(col_starts)
             for i, pos in enumerate(col_starts):
@@ -169,16 +186,24 @@ class Augmenter(object):
                 else:
                     col_lens[i] = col_starts[i + 1] - pos
                     col_ends[i] = col_starts[i + 1] - 1
-
-                if tokens[col_ends[i]] == '[SEP]':
-                    col_ends[i] -= 1
-                    col_lens[i] -= 1
+                    
+                # # 如果 'COL' 区间的结束位置是 '[SEP]'，则需要相应调整结束位置和长度
+                # if tokens[col_ends[i]] == '[SEP]':
+                #     col_ends[i] -= 1
+                #     col_lens[i] -= 1
+             # 找到长度小于等于 8 的 'COL' 区间的索引
             candidates = [i for i, le in enumerate(col_lens) if le <= 8]
+            
+            # 如果存在满足条件的 'COL' 区间
             if len(candidates) > 0:
-                idx = random.choice(candidates)
+                idx = random.choice(candidates) # 随机选择一个满足条件的 'COL' 区间的索引
                 start, end = col_starts[idx], col_ends[idx]
-                new_tokens = tokens[:start] + tokens[end+1:]
-                new_labels = labels[:start] + labels[end+1:]
+                # 中间不能有[SEP]
+                if '[SEP]' not in tokens[start:end+1]:
+                    new_tokens = tokens[:start] + tokens[end+1:]
+                    new_labels = labels[:start] + labels[end+1:]
+                else:
+                    new_tokens, new_labels = tokens, labels
             else:
                 new_tokens, new_labels = tokens, labels
         else:
@@ -201,6 +226,7 @@ class Augmenter(object):
             str: the augmented sentence
         """
         # 50% of chance of flipping
+        # 交换左右顺序
         if ' [SEP] ' in text and random.randint(0, 1) == 0:
             left, right = text.split(' [SEP] ')
             text = right + ' [SEP] ' + left
@@ -227,7 +253,7 @@ class Augmenter(object):
                 tokens, labels = self.augment(tokens, labels, op=op)
         else:
             tokens, labels = self.augment(tokens, labels, op=op)
-        results = ' '.join(tokens)
+        results = ' '.join(tokens) # 使用空格连接tokens
         return results
 
     def sample_span(self, tokens, labels, span_len=3):

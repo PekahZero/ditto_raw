@@ -30,8 +30,8 @@ class DittoDataset(data.Dataset):
         self.labels = []
         self.max_len = max_len
         self.size = size
-
-        if isinstance(path, list):
+        # 判断是否是List
+        if isinstance(path, list): 
             lines = path
         else:
             lines = open(path)
@@ -77,11 +77,22 @@ class DittoDataset(data.Dataset):
         # augment if da is set
         if self.da is not None:
             combined = self.augmenter.augment_sent(left + ' [SEP] ' + right, self.da)
-            left, right = combined.split(' [SEP] ')
-            x_aug = self.tokenizer.encode(text=left,
-                                      text_pair=right,
-                                      max_length=self.max_len,
-                                      truncation=True)
+            
+            if ' [SEP] ' not in combined:
+                # print(combined)
+                # 只交左右
+                x_aug = self.tokenizer.encode(text=right,
+                                        text_pair=left,
+                                        max_length=self.max_len,
+                                        truncation=True) 
+                # return x, x_aug, self.labels[idx]
+            
+            else:
+                left, right = combined.split(' [SEP] ')
+                x_aug = self.tokenizer.encode(text=left,
+                                        text_pair=right,
+                                        max_length=self.max_len,
+                                        truncation=True)
             return x, x_aug, self.labels[idx]
         else:
             return x, self.labels[idx]

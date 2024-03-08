@@ -80,20 +80,24 @@ def blocked_matmul(mata, matb,
     return results
 
 
-def dump_pairs(out_fn, entries_a, entries_b, pairs):
+def dump_pairs(out_path,out_fn, entries_a, entries_b, pairs):
     """Dump the pairs to a jsonl file
     """
-    with jsonlines.open(out_fn, mode='w') as writer:
+    if not os.path.exists(out_path):
+        os.makedirs(out_path)
+        
+    with jsonlines.open(os.path.join(out_path, out_fn), mode='w') as writer:
         for idx_a, idx_b, score in pairs:
             writer.write([entries_a[idx_a], entries_b[idx_b], str(score)])
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_path", type=str, default="../data/er_magellan/Structured/Beer/")
-    parser.add_argument("--left_fn", type=str, default=None)
-    parser.add_argument("--right_fn", type=str, default=None)
+    parser.add_argument("--input_path", type=str, default="./input/")
+    parser.add_argument("--left_fn", type=str, default='table_a.txt')
+    parser.add_argument("--right_fn", type=str, default='table_b.txt')
+    parser.add_argument("--output_path", type=str, default='./output/')
     parser.add_argument("--output_fn", type=str, default='candidates.jsonl')
-    parser.add_argument("--model_fn", type=str, default="model.pth/")
+    parser.add_argument("--model_fn", type=str, default="./models")
     parser.add_argument("--batch_size", type=int, default=512)
     parser.add_argument("--k", type=int, default=10)
     parser.add_argument("--threshold", type=float, default=None) # 0.6
@@ -115,7 +119,8 @@ if __name__ == "__main__":
                    threshold=hp.threshold,
                    k=hp.k,
                    batch_size=hp.batch_size)
-        dump_pairs(os.path.join(hp.input_path, hp.output_fn),
+        dump_pairs(hp.output_path, 
+                   hp.output_fn,
                    entries_a,
                    entries_b,
                    pairs)

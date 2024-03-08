@@ -53,7 +53,7 @@ class Summarizer:
         """Build the idf index.
 
         Store the index and vocabulary in self.idf and self.vocab.
-        """
+        """ # fns: path_list
         fns = [self.config['trainset'],
                self.config['validset'],
                self.config['testset']]
@@ -65,7 +65,7 @@ class Summarizer:
                     if len(LL) > 2:
                         for entry in LL:
                             content.append(entry)
-
+        # content(List) : e1 e2 label (3 lines)
         vectorizer = TfidfVectorizer().fit(content)
         self.vocab = vectorizer.vocabulary_
         self.idf = vectorizer.idf_
@@ -91,6 +91,7 @@ class Summarizer:
         Returns:
             str: the summarized example
         """
+        # 'COL title VAL   "GoPro HDMI Cable"@en Cable AHDMC-301 - Filmtools"@en \tCOL title VAL   "GoPro Headstrap Plus Quickclip"@en Quickclip | Sportsman\'s Warehouse"@en \t0'
         sentA, sentB, label = row.strip().split('\t')
         res = ''
         cnt = Counter()

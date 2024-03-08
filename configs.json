@@ -1,5 +1,13 @@
 [
   {
+    "name": "er_magellan",
+    "task_type": "classification",
+    "vocab": ["0", "1"],
+    "trainset": "data/er_magellan/total_train.txt",
+    "validset": "data/er_magellan/total_valid.txt",
+    "testset": "data/er_magellan/total_test.txt"
+  },
+  {
     "name": "wdc_all_small",
     "task_type": "classification",
     "vocab": ["0", "1"],

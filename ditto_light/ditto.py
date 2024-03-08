@@ -186,7 +186,7 @@ def train(trainset, validset, testset, run_tag, hp):
                        lm=hp.lm,
                        alpha_aug=hp.alpha_aug)
     model = model.cuda()
-    optimizer = AdamW(model.parameters(), lr=hp.lr)
+    optimizer = AdamW(model.parameters(), lr=hp.lr, no_deprecation_warning=True)
 
     # if hp.fp16:
     #     model, optimizer = amp.initialize(model, optimizer, opt_level='O2')
@@ -226,11 +226,11 @@ def train(trainset, validset, testset, run_tag, hp):
                         'epoch': epoch}
                 torch.save(ckpt, ckpt_path)
 
-        print(f"epoch {epoch}: dev_f1={dev_f1}, f1={test_f1}, best_f1={best_test_f1}")
+        print(f"epoch {epoch}: dev_f1={dev_f1}, test_f1={test_f1}, best_f1={best_test_f1}")
 
         # logging
-        scalars = {'f1': dev_f1,
-                   't_f1': test_f1}
+        scalars = {'dev_f1': dev_f1,
+                   'test_f1': test_f1}
         writer.add_scalars(run_tag, scalars, epoch)
 
     writer.close()
