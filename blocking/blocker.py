@@ -93,7 +93,7 @@ def dump_pairs(out_path,out_fn, entries_a, entries_b, pairs):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_path", type=str, default="./input/")
-    parser.add_argument("--left_fn", type=str, default='table_a.txt')
+    parser.add_argument("--left_fn", type=str, default='table_a_small.txt')
     parser.add_argument("--right_fn", type=str, default='table_b.txt')
     parser.add_argument("--output_path", type=str, default='./output/')
     parser.add_argument("--output_fn", type=str, default='candidates.jsonl')
@@ -124,4 +124,5 @@ if __name__ == "__main__":
                    entries_a,
                    entries_b,
                    pairs)
-
+# 输入2个文件 (行数可以不同)
+# 输出了json文件 [entry1, entry2, confidence] 

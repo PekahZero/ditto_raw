@@ -105,8 +105,9 @@ def test(hp):
         model = SentenceTransformer(model_path)
         test_evaluator = EmbeddingSimilarityEvaluator.from_input_examples(
             test_samples, batch_size=hp.batch_size)
-        test_evaluator(model, output_path=save_path)
+        # test_evaluator(model, output_path=save_path)
         
+        model.evaluate(test_evaluator, output_path=save_path)
     else:
         print('model not found')
 
@@ -118,13 +119,14 @@ if __name__=="__main__":
     parser.add_argument("--model_fn", type=str, default="./models")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--n_epochs", type=int, default=1)
-    parser.add_argument("--logdir", type=str, default="checkpoints/")
+    # parser.add_argument("--logdir", type=str, default="checkpoints/")
     parser.add_argument("--lm", type=str, default='distilbert')
     parser.add_argument("--fp16", dest="fp16", action="store_true")
     parser.add_argument("--save_model", dest="save_model", action="store_true")
     parser.add_argument("--use_gpu", dest="use_gpu", action="store_true")
     
-    
+# logdir 无用
+# save_model 无用： 一定会保存model到model_fn
     hp = parser.parse_args()
 
     train(hp)

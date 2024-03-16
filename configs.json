@@ -1,4 +1,5 @@
 [
+
   {
     "name": "er_magellan",
     "task_type": "classification",
@@ -6,6 +7,30 @@
     "trainset": "data/er_magellan/total_train.txt",
     "validset": "data/er_magellan/total_valid.txt",
     "testset": "data/er_magellan/total_test.txt"
+  },
+  {
+    "name": "Dirty",
+    "task_type": "classification",
+    "vocab": ["0", "1"],
+    "trainset": "data/er_magellan/Dirty/sum_train.txt",
+    "validset": "data/er_magellan/Dirty/sum_valid.txt",
+    "testset": "data/er_magellan//Dirty/sum_test.txt"
+  },
+  {
+    "name": "Structured",
+    "task_type": "classification",
+    "vocab": ["0", "1"],
+    "trainset": "data/er_magellan/Structured/sum_train.txt",
+    "validset": "data/er_magellan/Structured/sum_valid.txt",
+    "testset": "data/er_magellan//Structured/sum_test.txt"
+  },
+  {
+    "name": "Textual",
+    "task_type": "classification",
+    "vocab": ["0", "1"],
+    "trainset": "data/er_magellan/Textual/sum_train.txt",
+    "validset": "data/er_magellan/Textual/sum_valid.txt",
+    "testset": "data/er_magellan//Textual/sum_test.txt"
   },
   {
     "name": "wdc_all_small",

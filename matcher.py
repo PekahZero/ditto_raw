@@ -94,9 +94,11 @@ def classify(sentence_pairs, model,
     dataset = DittoDataset(inputs,
                            max_len=max_len,
                            lm=lm)
+    # dataset = DittoDataset(inputs,
+    #                        max_len=max_len) lm = roberta
     # print(dataset[0])
     iterator = data.DataLoader(dataset=dataset,
-                               batch_size=len(dataset),
+                               batch_size=len(dataset), # 一批次？
                                shuffle=False,
                                num_workers=0,
                                collate_fn=DittoDataset.pad)
@@ -322,8 +324,8 @@ def load_model(task, path, lm, use_gpu, fp16=True):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--task", type=str, default='Structured/Beer')
-    parser.add_argument("--input_path", type=str, default='input/candidates_small.jsonl')
-    parser.add_argument("--output_path", type=str, default='output/matched_small.jsonl')
+    parser.add_argument("--input_path", type=str, default='input/candidates.jsonl')
+    parser.add_argument("--output_path", type=str, default='output/match_candidates.jsonl')
     parser.add_argument("--lm", type=str, default='distilbert')
     parser.add_argument("--use_gpu", dest="use_gpu", action="store_true")
     parser.add_argument("--fp16", dest="fp16", action="store_true")
