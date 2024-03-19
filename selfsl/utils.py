@@ -63,7 +63,7 @@ def evaluate(model, iterator, threshold=None):
     all_probs = []
     with torch.no_grad():
         for batch in iterator:
-            if model.task_type == 'em':
+            if model.task_type == 'er_magellan':
                 x1, x2, x12, y = batch
                 logits = model(x1, x2, x12)
             else:

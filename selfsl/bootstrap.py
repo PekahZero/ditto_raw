@@ -14,7 +14,7 @@ def bootstrap(model, hp, blocked=True):
     """
     pos_factor = neg_factor = hp.multiplier
 
-    train_path = os.path.join('data/%s/%s/train.txt' % \
+    train_path = os.path.join('../data/%s/%s/train.txt' % \
                               (hp.task_type, hp.task))
     # blocking results are available
     dataset = DMDataset(train_path,

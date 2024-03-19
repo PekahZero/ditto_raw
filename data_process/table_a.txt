@@ -1,0 +1,2 @@
+COL attr1 VAL 1 COL attr2 VAL A \t COL attr1 VAL 4 COL attr2 VAL D 
+COL attr1 VAL 1 COL attr2 VAL A \t COL attr1 VAL 5 COL attr2 VAL E 

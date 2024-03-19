@@ -27,6 +27,8 @@ def load_model(hp):
     model = BarlowTwinsSimCLR(hp,
                         device=device,
                         lm=hp.lm)
+    
+    # 不是lm_only,可以使用之前经过fine-tune的model
     if not hp.lm_only:
         # 路径存在问题
         # 不是从ckpt加载

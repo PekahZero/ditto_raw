@@ -92,19 +92,26 @@ def evaluate(model, iterator, threshold=None):
     if threshold is not None:
         pred = [1 if p > threshold else 0 for p in all_probs]
         f1 = metrics.f1_score(all_y, pred)
-        return f1
+        r = metrics.accuracy_score(all_y, pred)
+        p = metrics.recall_score(all_y, pred)
+        return f1,r,p
     else:
         best_th = 0.5
         f1 = 0.0 # metrics.f1_score(all_y, all_p)
-
+        r = 0.0
+        p = 0.0
         for th in np.arange(0.0, 1.0, 0.05):
             pred = [1 if p > th else 0 for p in all_probs]
             new_f1 = metrics.f1_score(all_y, pred)
+            new_r = metrics.accuracy_score(all_y, pred)
+            new_p = metrics.recall_score(all_y, pred)
             if new_f1 > f1:
                 f1 = new_f1
+                r = new_r
+                p = new_p
                 best_th = th
 
-        return f1, best_th
+        return f1, r, p, best_th
 
 
 def train_step(train_iter, model, optimizer, scheduler, hp):
@@ -120,6 +127,7 @@ def train_step(train_iter, model, optimizer, scheduler, hp):
     Returns:
         None
     """
+    loss_list = []
     criterion = nn.CrossEntropyLoss()
     # criterion = nn.MSELoss()
     for i, batch in enumerate(train_iter):
@@ -143,9 +151,13 @@ def train_step(train_iter, model, optimizer, scheduler, hp):
         
         optimizer.step()
         scheduler.step()
+        loss_list.append(loss.item())
+        
         if i % 10 == 0: # monitoring
             print(f"step: {i}, loss: {loss.item()}")
         del loss
+    
+    return sum(loss_list)/len(loss_list)
 
 
 def train(trainset, validset, testset, run_tag, hp):
@@ -202,16 +214,17 @@ def train(trainset, validset, testset, run_tag, hp):
     for epoch in range(1, hp.n_epochs+1):
         # train
         model.train()
-        train_step(train_iter, model, optimizer, scheduler, hp)
+        loss_avr = train_step(train_iter, model, optimizer, scheduler, hp)
 
         # eval
         model.eval()
-        dev_f1, th = evaluate(model, valid_iter)
-        test_f1 = evaluate(model, test_iter, threshold=th)
+        dev_f1, dev_r, dev_p, th = evaluate(model, valid_iter)
+        test_f1, test_r, test_p = evaluate(model, test_iter, threshold=th)
 
         if dev_f1 > best_dev_f1:
             best_dev_f1 = dev_f1
             best_test_f1 = test_f1
+            
             if hp.save_model:
                 # create the directory if not exist
                 directory = os.path.join(hp.logdir, hp.task)
@@ -229,8 +242,12 @@ def train(trainset, validset, testset, run_tag, hp):
         print(f"epoch {epoch}: dev_f1={dev_f1}, test_f1={test_f1}, best_f1={best_test_f1}")
 
         # logging
-        scalars = {'dev_f1': dev_f1,
-                   'test_f1': test_f1}
+        scalars = {'dev_f1': dev_f1, 'test_f1': test_f1,
+                   'dev_r': dev_r, 'test_r': test_r,
+                   'dev_p': dev_p, 'test_p': test_p,
+                   'best_f1' : best_test_f1,
+                   'th': th,
+                   "loss":loss_avr}
         writer.add_scalars(run_tag, scalars, epoch)
 
     writer.close()

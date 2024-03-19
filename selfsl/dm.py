@@ -101,7 +101,7 @@ def train(trainset, validset, testset, run_tag, hp):
                     pretrained=(hp.ssl_method == 'mtl'))
 
     model = model.cuda()
-    optimizer = AdamW(model.parameters(), lr=hp.lr)
+    optimizer = AdamW(model.parameters(), lr=hp.lr, no_deprecation_warning=True)
     
     # if hp.fp16:
     #     model, optimizer = amp.initialize(model, optimizer, opt_level='O2')

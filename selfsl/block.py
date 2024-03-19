@@ -209,7 +209,7 @@ def evaluate_blocking(model, hp):
 
 # encode_all(dataset, model, hp): 该函数用于对数据集中的所有记录进行编码。通过将数据集分成批次加载，使用给定的模型对每个记录进行编码，并将编码结果保存在 all_encs 中。最后对编码结果进行归一化处理并返回。
 
-# run_blocking(left_dataset, right_dataset, model, hp): 运行 Barlow Twins 阻塞方法。首先对左右两个数据集进行编码，然后通过阻塞矩阵乘法计算相似度，根据给定的阈值和 k 值返回候选匹配对列表。
+# run_blocking(left_dataset, right_dataset, model , hp): 运行 Barlow Twins 阻塞方法。首先对左右两个数据集进行编码，然后通过阻塞矩阵乘法计算相似度，根据给定的阈值和 k 值返回候选匹配对列表。
 
 # read_ground_truth(path): 从训练/验证/测试集中读取地面真相匹配。遍历每个数据集文件，将标签为 1 的匹配对添加到结果列表中，并返回结果列表以及原始匹配/非匹配总数。
 

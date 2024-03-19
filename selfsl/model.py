@@ -9,7 +9,7 @@ lm_mp = {'roberta': 'roberta-base',
 class DMModel(nn.Module):
     """A baseline model for EM."""
 
-    def __init__(self, device='cuda', lm='roberta', task_type='em', pretrained=True):
+    def __init__(self, device='cuda', lm='roberta', task_type='er_magellan', pretrained=True):
         super().__init__()
         
         if pretrained:
@@ -22,7 +22,7 @@ class DMModel(nn.Module):
         self.device = device
         self.task_type = task_type
         hidden_size = 768
-        if task_type == 'em':
+        if task_type == 'er_magellan':
             self.fc = torch.nn.Linear(hidden_size * 2, 2)
         else:
             self.fc = torch.nn.Linear(hidden_size, 2)
@@ -38,7 +38,7 @@ class DMModel(nn.Module):
         Returns:
             Tensor: binary prediction
         """
-        if self.task_type == 'em':
+        if self.task_type == 'er_magellan':
             # em
             x1 = x1.to(self.device) # (batch_size, seq_len)
             x2 = x2.to(self.device) # (batch_size, seq_len)

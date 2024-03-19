@@ -59,7 +59,7 @@ class BarlowTwinsSimCLR(nn.Module):
 
         # a fully connected layer for fine tuning
         #self.fc = torch.nn.Linear(hidden_size * 2, 2)
-        if hp.task_type == 'em':
+        if hp.task_type == 'er_magellan':
             self.fc = nn.Linear(sizes[-1] * 2, 2)
         else:
             self.fc = nn.Linear(sizes[-1], 2)
@@ -164,7 +164,7 @@ class BarlowTwinsSimCLR(nn.Module):
                 return loss
         elif flag == 2:
             # fine tuning
-            if self.hp.task_type == 'em':
+            if self.hp.task_type == 'er_magellan':
                 x1 = y1
                 x2 = y2
                 x12 = y12
@@ -302,7 +302,7 @@ def create_batches(u_set, batch_size, n_ssl_epochs, num_clusters=50):
     N = len(u_set)
     tfidf = TfidfVectorizer().fit_transform(u_set.instances)
 
-    kmeans = KMeans(n_clusters=num_clusters).fit(tfidf)
+    kmeans = KMeans(n_clusters=num_clusters,n_init=10).fit(tfidf)
 
     clusters = [[] for _ in range(num_clusters)]
     for idx, label in enumerate(kmeans.labels_):
@@ -357,6 +357,8 @@ def selfsl_step(train_nolabel_iter, train_iter, model, optimizer, scheduler, hp)
     Returns:
         None
     """
+    
+    loss_list = []
     # train Barlow Twins or SimCLR
     for i, batch in enumerate(train_nolabel_iter):
         yA, yB = batch
@@ -384,10 +386,14 @@ def selfsl_step(train_nolabel_iter, train_iter, model, optimizer, scheduler, hp)
         
         optimizer.step()
         scheduler.step()
+        loss_list.append(loss.item().copy())
+        
         if i % 10 == 0: # monitoring
             print(f"    step: {i}, loss: {loss.item()}")
         #print(f"    step: {i}, loss: {loss.item()}")
+        
         del loss
+    return sum(loss_list)/len(loss_list)
 
 
 def fine_tune_step(train_iter, model, optimizer, scheduler, hp):
@@ -403,6 +409,7 @@ def fine_tune_step(train_iter, model, optimizer, scheduler, hp):
     Returns:
         None
     """
+    loss_list = []
     criterion = nn.CrossEntropyLoss()
     # criterion = nn.MSELoss()
     for i, batch in enumerate(train_iter):
@@ -426,9 +433,11 @@ def fine_tune_step(train_iter, model, optimizer, scheduler, hp):
         
         optimizer.step()
         scheduler.step()
+        loss_list.append(loss.item().copy())
         if i % 10 == 0: # monitoring
             print(f"    fine tune step: {i}, loss: {loss.item()}")
         del loss
+    return sum(loss_list)/len(loss_list)
 
 
 def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
@@ -510,7 +519,7 @@ def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
     # model = model.cuda() # # 将模型移动到GPU
     model = model.cuda(device=device)
     
-    optimizer = AdamW(model.parameters(), lr=hp.lr)
+    optimizer = AdamW(model.parameters(), lr=hp.lr,no_deprecation_warning=True)
     # if hp.fp16:
     #     opt_level = 'O2' if hp.ssl_method == 'combined' else 'O2'
     #     model, optimizer = amp.initialize(model, optimizer, opt_level=opt_level)
@@ -548,8 +557,8 @@ def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
         # bootstrap the training set
         # bootstrap训练集-----------------------------------------------------
         #  (hp.bootstrap or hp.zero && task==em
-        if epoch == num_ssl_epochs + 1 and hp.task_type in ['em'] and (hp.bootstrap or hp.zero):
-            if hp.task_type == 'em':
+        if epoch == num_ssl_epochs + 1 and hp.task_type in ['er_magellan'] and (hp.bootstrap or hp.zero):
+            if hp.task_type == 'er_magellan':
                 new_trainset, TPR, TNR, FPR, FNR = bootstrap(model, hp)
                 # logging
                 writer.add_scalars(run_tag,
@@ -576,9 +585,12 @@ def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
         model.train()
         # pre-train ------------------------------------
         if epoch <= num_ssl_epochs:
-            selfsl_step(train_nolabel_iter, train_iter, model, optimizer, scheduler, hp)
+            loss_avr = selfsl_step(train_nolabel_iter, train_iter, model, optimizer, scheduler, hp)
+            scalars = {"ssl_loss": loss_avr}
+            writer.add_scalars(run_tag, scalars, epoch)
             
             # logging blocking--------------------
+            # k=20 则有20个
             if hp.blocking:
                 # 返回的 recal_score，数据集大小
                 recall, new_size = evaluate_blocking(model, hp)
@@ -592,7 +604,7 @@ def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
                     scalars = {'recall': recall,
                                'new_size': new_size}
                 # 不再体现
-                # writer.add_scalars(run_tag, scalars, epoch)
+                writer.add_scalars(run_tag+'blocking', scalars, epoch)
                 
                 for sz, r in zip(new_size, recall):
                     mlflow.log_metric("recall_%d" % sz, r)
@@ -601,60 +613,61 @@ def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
                 
         # 微调------------------
         else:
-            fine_tune_step(train_iter, model, optimizer, scheduler, hp)
+            loss_avr = fine_tune_step(train_iter, model, optimizer, scheduler, hp)
 
             # eval
             model.eval()
             dev_f1, dev_p, dev_r, th = evaluate(model, valid_iter)
-            if hp.task_type == 'cleaning':
-                # cleaning
-                test_f1, test_p, test_r, ec_f1 = evaluate(model, test_iter,
-                                          threshold=th,
-                                          ec_task=hp.task,
-                                          dump=True)
-                if dev_f1 > best_dev_f1:
-                    best_dev_f1 = dev_f1
-                    best_test_f1 = test_f1
-                    best_ec_f1 = ec_f1
-                print(f"epoch {epoch}: dev_f1={dev_f1}, f1={test_f1}, best_f1={best_test_f1}, ec_f1={ec_f1}")
+            # if hp.task_type == 'cleaning':
+            #     pass
+            # else:
+            # em
+            test_f1, test_p, test_r = evaluate(model, test_iter, threshold=th, dump=True)
+            if dev_f1 > best_dev_f1:
+                best_dev_f1 = dev_f1
+                best_test_f1 = test_f1
+                # 迭代模型
+                if hp.save_ckpt :
+                    # create the directory if not exist
+                    directory = os.path.join(hp.logdir, hp.task)
+                    if not os.path.exists(directory):
+                        os.makedirs(directory)
 
-                # logging
-                scalars = {'f1': dev_f1,
-                           'p': dev_p,
-                           'r': dev_r,
-                           't_f1': test_f1,
-                           't_p': test_p,
-                           't_r': test_r,
-                           'ec_f1': ec_f1}
-                for variable in ["dev_f1", "dev_p", "dev_r", "test_f1", "test_p", "test_r", "ec_f1"]:
-                    mlflow.log_metric(variable, eval(variable))
-            else:
-                # em
-                test_f1, test_p, test_r = evaluate(model, test_iter, threshold=th, dump=True)
-                if dev_f1 > best_dev_f1:
-                    best_dev_f1 = dev_f1
-                    best_test_f1 = test_f1
-                print(f"epoch {epoch}: dev_f1={dev_f1}, f1={test_f1}, best_f1={best_test_f1}")
-                print(f"epoch {epoch}: dev_p={dev_p}, dev_r={dev_r}, test_p={test_p}, test_r={test_r}")
+                    # save the checkpoints for each component
+                    ckpt_path = os.path.join(hp.logdir, hp.task, 'ssl.pt')
+                    # config_path = os.path.join(hp.logdir, hp.task, 'config.json')
+                    ckpt = {'model': model.state_dict(),
+                            'optimizer': optimizer.state_dict(),
+                            'scheduler': scheduler.state_dict(),
+                            'epoch': epoch}
+                    torch.save(ckpt, ckpt_path)
+                    
+            print(f"epoch {epoch}: dev_f1={dev_f1}, f1={test_f1}, best_f1={best_test_f1}")
+            print(f"epoch {epoch}: dev_p={dev_p}, dev_r={dev_r}, test_p={test_p}, test_r={test_r}")
 
-                # run on all pairs
-                if epoch == hp.n_epochs and all_pairs_iter is not None:
-                    evaluate(model, all_pairs_iter, threshold=th, dump=True)
-                    # evaluate(model, test_iter, threshold=th, dump=True)
+            # run on all pairs
+            if epoch == hp.n_epochs and all_pairs_iter is not None:
+                evaluate(model, all_pairs_iter, threshold=th, dump=True)
+                # evaluate(model, test_iter, threshold=th, dump=True)
 
-                # logging
-                scalars = {'f1': dev_f1,
-                           'p': dev_p,
-                           'r': dev_r,
-                           't_f1': test_f1,
-                           't_p': test_p,
-                           't_r': test_r}
-                for variable in ["dev_f1", "dev_p", "dev_r", "test_f1", "test_p", "test_r"]:
-                    mlflow.log_metric(variable, eval(variable))
+            # logging
+            scalars = {'dev_f1': dev_f1,
+                        'dev_p': dev_p,
+                        'dev_r': dev_r,
+                        'test_f1': test_f1,
+                        'test_p': test_p,
+                        'test_r': test_r,
+                        'best_f1' : best_test_f1,
+                        'th':th,
+                        'finetune_loss': loss_avr}
+            for variable in ["dev_f1", "dev_p", "dev_r", "test_f1", "test_p", "test_r","best_test_f1","th","loss_avr"]:
+                mlflow.log_metric(variable, eval(variable))
             writer.add_scalars(run_tag, scalars, epoch)
 
         # 保存checkpoint--------------------------------------
         # saving checkpoint at the last ssl step
+        # ssl_epoch 结束后保存模型，之后的进度不再保存？
+        # 先保存一次
         if hp.save_ckpt and epoch == num_ssl_epochs:
             # create the directory if not exist
             directory = os.path.join(hp.logdir, hp.task)
@@ -673,10 +686,14 @@ def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
         # -------------------------------------------------------
         # check if learning rate drops to 0
         if scheduler.get_last_lr()[0] < 1e-9:
-            break
+            scalars = {'lr_to_0': epoch}
+            writer.add_scalars(run_tag, scalars,epoch)
+            mlflow.log_metric('lr_to_0', epoch)
+            print("The learning rate drops to 0")
+            # break
         
         # 清除缓存
-        # torch.cuda.empty_cache() 
-        
+        # torch.cuda.empty_cache()
+          
 
     writer.close()
