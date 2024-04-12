@@ -14,10 +14,11 @@ from selfsl.bt_dataset import BTDataset
 from selfsl.barlow_twins_simclr import BarlowTwinsSimCLR
 from selfsl.block import *
 from torch.utils import data
-# from apex import amp
+from apex import amp
 from sklearn.metrics import recall_score
 from tqdm import tqdm
 from sklearn.feature_extraction.text import TfidfVectorizer
+
 
 
 def load_model(hp):
@@ -49,16 +50,16 @@ def load_model(hp):
             #     torch.save(ckpt, ckpt_path)
         # ----------------------------------------------------
         
-        # --
+        # ----
         ckpt_path = os.path.join(hp.logdir, hp.task, 'ssl.pt')
-        # --
+        # ----
         saved_state = torch.load(ckpt_path,
                     map_location=lambda storage, loc: storage)
         model.load_state_dict(saved_state['model'])
 
     model = model.to(device)
-    # if hp.fp16 and 'cuda' in device:
-    #     model = amp.initialize(model, opt_level='O2')
+    if hp.fp16 and 'cuda' in device:
+        model = amp.initialize(model, opt_level='O2')
 
     return model
 
@@ -126,7 +127,8 @@ if __name__ == '__main__':
     parser.add_argument("--task", type=str, default="DBLP-ACM")
     parser.add_argument("--task_type", type=str, default="task_type")
     parser.add_argument("--logdir", type=str, default="results/")
-    parser.add_argument("--ckpt_path", type=str, default=None) # em_Abt-Buy_da=barlow_twins_id=0_size=300_ssl.pt
+    parser.add_argument("--result_logdir", type=str, default="results_blk/")
+    # parser.add_argument("--ckpt_path", type=str, default=None) # em_Abt-Buy_da=barlow_twins_id=0_size=300_ssl.pt
     parser.add_argument("--run_id", type=int, default=0)
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--max_len", type=int, default=128)
@@ -193,24 +195,46 @@ if __name__ == '__main__':
     
     dump_pairs('output/', 'candidate.jsonl', ent_a, ent_b, pairs)
     dump_pairs('output/', 'candidate.txt', ent_a, ent_b, pairs)
+
+# 评估
+
+
+    from tensorboardX import SummaryWriter # conda install tensorboardX
     
+    writer = SummaryWriter(log_dir=hp.result_logdir)
+    blocker_tag = "%s_tfifd=%s_id=%d" % (hp.task, str(hp.tfidf), hp.run_id)
+# 如果超参数 hp.k 不存在（为空），则计算所有候选配对的召回率
+# 调用 evaluate_pairs 函数计算召回率，并将其存储在变量 recall 中。
+# 候选集大小即为配对的数量
+    ground_truth, total = read_ground_truth(path)
+    
+    if hp.k:
+        for k in range(1, hp.k+1):
+            recall, size = evaluate_pairs(pairs, ground_truth, k=k)
+            scalars = {"recall": recall,
+                       "new_size": size}
+            writer.add_scalars(blocker_tag, scalars, k)
+            print('k=%d, recall=%f, new_size=%d' % (k, recall, size))
+    else:
+        recall = evaluate_pairs(pairs, ground_truth)
+        scalars = {"recall": recall,
+                   "original_size" : total,
+                   "new_size": len(pairs)}
+        writer.add_scalars(blocker_tag, scalars, 1)
+        print('recall = %f, original_size = %d, new_size = %d' % (recall, total, len(pairs)))
+
+
     
     # # dump pairs
     # import pickle
     # pickle.dump(pairs, open('blocking_result.pkl', 'wb'))
     # 将名为 pairs 的对象保存到名为 blocking_result.pkl 的文件
     
+    
+    # --------------评估---------------
     # with open('blocking_result.pkl', 'rb') as file:
     #     pairs = pickle.load(file)
     #     print(pairs)
 
         # (627, 1091, 0.712636925726547)
         # 是 (idx1, idx2, confidence)
-    # ground_truth, total = read_ground_truth(path)
-    # if hp.k:
-    #     for k in range(1, hp.k+1):
-    #         recall, size = evaluate_pairs(pairs, ground_truth, k=k)
-    #         print('k=%d,recall=%f,size=%d' % (k, recall, size))
-    # else:
-    #     recall = evaluate_pairs(pairs, ground_truth)
-    #     print('recall = %f, original_size = %d, new_size = %d' % (recall, total, len(pairs)))

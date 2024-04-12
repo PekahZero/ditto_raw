@@ -21,7 +21,7 @@ for dataset in datasets:
     cmd = """CUDA_VISIBLE_DEVICES=0 python train_bt.py \
     --task_type er_magellan \
     --task %s \
-    --logdir result_blk/ \
+    --logdir result_em_ditto/ \
     --run_id 0 \
     --batch_size %d \
     --max_len 128 \

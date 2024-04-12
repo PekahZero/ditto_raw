@@ -99,18 +99,18 @@
             // ]
             "args" : [
                 "--task_type", "er_magellan",
-                "--task", "Textual/Abt-Buy",
-                "--logdir", "result_blkk/",
+                "--task", "Dirty/DBLP-ACM",
+                "--logdir", "result_em_ssl/",
                 "--run_id", "0",
                 "--batch_size", "64",
-                "--max_len", "128",
+                "--max_len", "256",
                 "--size", "500",
-                "--lr", "5e-5",
+                "--lr", "3e-5",
                 "--n_epochs", "50",
                 "--lm", "roberta",
                 "--ssl_method", "combined",
                 "--n_ssl_epochs", "3",
-                "--da", "cutoff",
+                "--da", "all",
                 "--clustering",
                 "--num_clusters", "90",
                 "--bootstrap",
@@ -167,6 +167,40 @@
                 "--save_ckpt",
                 "--run_id", "0"
             ]            
+        },
+        {
+            "name": "Python 调试程序: bootstrap.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "cwd" : "${fileDirname}",
+            "args": [
+                    "--task_type", "er_magellan",
+                    "--task", "Structured/Fodors-Zagats",
+                    "--logdir","result_em_ssl/ssl_test/",
+                    "--mlflow_tag","mlflow_em_ssl/test/",
+                    "--run_id", "0",
+                    "--batch_size", "64",
+                    "--max_len", "256",
+                    "--lr","3e-5",
+                    "--size",  "500",
+                    "--n_epochs","50",
+                    "--lm","roberta",
+                    "--ssl_method","combined",
+                    "--da", "all",
+                    "--n_ssl_epochs", "1",
+                    "--bootstrap",
+                    "--multiplier", "8",
+                    "--projector", "4096",
+                    "--blocking",
+                    "--clustering",
+                    "--k","20",
+                    "--fp16"
+                ]        
         }
     ]
 }
+
+
+

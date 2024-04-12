@@ -8,8 +8,9 @@ from .augment import Augmenter
 
 # map lm name to huggingface's pre-trained model names
 lm_mp = {'roberta': 'roberta-base',
-         'bert': 'bert-base-uncased',
-         'distilbert': 'distilbert-base-uncased'}
+         'distilbert': 'distilbert-base-uncased',
+         'xlnet': 'xlnet-large-cased',
+         'bert': 'bert-base-uncased'}
 
 class DMDataset(data.Dataset):
     """EM dataset"""
@@ -82,15 +83,17 @@ class DMDataset(data.Dataset):
                                         max_length=self.max_len,
                                         truncation=True)
             return x1, x2, x12, self.labels[idx]
-        else:
-            # cleaning
-            left = self.pairs[idx][0]
-            if self.da is not None:
-                left = self.augmenter.augment_sent(left, self.da)
-            x = self.tokenizer.encode(text=left,
-                                      max_length=self.max_len,
-                                      truncation=True)
-            return x, self.labels[idx]
+        # 
+        
+        # else:
+        #     # cleaning
+        #     left = self.pairs[idx][0]
+        #     if self.da is not None:
+        #         left = self.augmenter.augment_sent(left, self.da)
+        #     x = self.tokenizer.encode(text=left,
+        #                               max_length=self.max_len,
+        #                               truncation=True)
+        #     return x, self.labels[idx]
 
 
     @staticmethod

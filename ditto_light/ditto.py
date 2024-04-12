@@ -15,10 +15,12 @@ from transformers import AutoModel, AdamW, get_linear_schedule_with_warmup
 from tensorboardX import SummaryWriter # conda install tensorboardX
 # from torch.utils.tensorboard import SummaryWriter
     
-# from apex import amp
+from apex import amp
 
 lm_mp = {'roberta': 'roberta-base',
-         'distilbert': 'distilbert-base-uncased'}
+         'distilbert': 'distilbert-base-uncased',
+         'xlnet': 'xlnet-large-cased',
+         'bert': 'bert-base-uncased'}
 
 class DittoModel(nn.Module):
     """A baseline model for EM."""
@@ -84,6 +86,8 @@ def evaluate(model, iterator, threshold=None):
     with torch.no_grad():
         for batch in iterator:
             x, y = batch
+            x = x.cuda()
+            # y = y.cuda()
             logits = model(x)
             probs = logits.softmax(dim=1)[:, 1]
             all_probs += probs.cpu().numpy().tolist()
@@ -135,19 +139,26 @@ def train_step(train_iter, model, optimizer, scheduler, hp):
 
         if len(batch) == 2:
             x, y = batch
+            # x = x.to(model.device())
+            x = x.cuda()
+            y = y.cuda()
             prediction = model(x)
         else:
             x1, x2, y = batch
+            x1 = x1.cuda()
+            x2 = x2.cuda()
+            y = y.cuda()
             prediction = model(x1, x2)
 
-        loss = criterion(prediction, y.to(model.device))
+        loss = criterion(prediction, y)
 
-        # if hp.fp16:
-        #     with amp.scale_loss(loss, optimizer) as scaled_loss:
-        #         scaled_loss.backward()
-        # else:
-        #     loss.backward()
-        loss.backward()
+        
+        if hp.fp16:
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
+        else:
+            loss.backward()
+        # loss.backward()
         
         optimizer.step()
         scheduler.step()
@@ -200,8 +211,8 @@ def train(trainset, validset, testset, run_tag, hp):
     model = model.cuda()
     optimizer = AdamW(model.parameters(), lr=hp.lr, no_deprecation_warning=True)
 
-    # if hp.fp16:
-    #     model, optimizer = amp.initialize(model, optimizer, opt_level='O2')
+    if hp.fp16:
+        model, optimizer = amp.initialize(model, optimizer, opt_level='O2')
     num_steps = (len(trainset) // hp.batch_size) * hp.n_epochs
     scheduler = get_linear_schedule_with_warmup(optimizer,
                                                 num_warmup_steps=0,

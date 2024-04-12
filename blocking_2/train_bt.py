@@ -103,12 +103,20 @@ if __name__ == '__main__':
 
     test_path = os.path.join(path, 'test.txt')
 
-# 不是同一层
+
+# 输入的成对
+# 数据增强-->编码-->
+# return (left x1, right x2, left+right x12, label)
+            # x12 = self.tokenizer.encode(text=left,
+            #                             text_pair=right,
+            #                             max_length=self.max_len,
+            #                             truncation=True)
     trainset = DMDataset(train_path,
                          lm=hp.lm,
                          size=hp.size,
                          max_len=hp.max_len,
-                         da=None) # data augmentation
+                         da = hp.da)
+                        #  da=None) # data augmentation
     validset = DMDataset(valid_path,
                          lm=hp.lm,
                          size=hp.size,
@@ -118,19 +126,23 @@ if __name__ == '__main__':
                         size=None,
                         max_len=hp.max_len)
 
-    if hp.ssl_method in ['barlow_twins', 'simclr', 'combined'] \
-            and hp.n_ssl_epochs > 0:
+    # 是否使用无监督
+    if hp.ssl_method in ['barlow_twins', 'simclr', 'combined']:
         method = hp.ssl_method
     else:
         method = 'ditto'
 
+    # bootstraping related
     if hp.zero:
         method += '_zero'
     if hp.bootstrap:
         method += '_bootstrap'
+        
+    # 基于聚类的负采样
     if hp.clustering:
         method += '_clustering'
 
+    # 数据增强方法
     method += '_' + str(hp.da)
 
     run_tag = '%s_%s_da=%s_id=%d_size=%s' % (hp.task_type, hp.task, method, hp.run_id, str(hp.size))
@@ -140,16 +152,21 @@ if __name__ == '__main__':
         from selfsl.barlow_twins_simclr import train
         from selfsl.bt_dataset import BTDataset
 
+        # 只选取1000个数据，no_label 单一的数据实体，不是成对的
+        # train_path_nolabel 是单一的数据
+        # BTDataset ya yb (数据增强则不同，不增强则相同)
+        # 增强-->token编码-->输出
         trainset_nolabel = BTDataset(train_path_nolabel,
                              lm=hp.lm,
                              size=1000,
                              max_len=hp.max_len,
                              da=hp.da) # data augmentation
         # create_ground_truth: print(len(self.ground_truth))
+        # 计算no_label文件中的pos 数目？
         trainset_nolabel.create_ground_truth([DMDataset(path, lm=hp.lm, max_len=hp.max_len, size=None) \
                                               for path in [train_path, valid_path, test_path]])
         train(trainset_nolabel, trainset, validset, testset, run_tag, hp)
     else:
-        # Ditto
+        # Ditto DM？
         from selfsl.dm import train
         train(trainset, validset, testset, run_tag, hp)

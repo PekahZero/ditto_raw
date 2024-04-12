@@ -9,8 +9,9 @@ from .utils import blocked_matmul
 
 # map lm name to huggingface's pre-trained model names
 lm_mp = {'roberta': 'roberta-base',
-         'bert': 'bert-base-uncased',
-         'distilbert': 'distilbert-base-uncased'}
+         'distilbert': 'distilbert-base-uncased',
+         'xlnet': 'xlnet-large-cased',
+         'bert': 'bert-base-uncased'}
 
 class BTDataset(data.Dataset):
     """Dataset for pre-training"""
@@ -32,7 +33,7 @@ class BTDataset(data.Dataset):
         if size is not None:
             if size > len(self.instances):
                 N = size // len(self.instances) + 1
-                self.instances = (self.instances * N)[:size] # 若指定了数据集大小，根据情况进行调整
+                self.instances = (self.instances * N)[:size] # 若指定了数据集大小，根据情况进行调整 进行重复
             else:
                 self.instances = random.sample(self.instances, size)
 
@@ -86,6 +87,8 @@ class BTDataset(data.Dataset):
                                    truncation=True)
         return yA, yB
 
+    # 创建标签？
+    # 为评估无标签数据集 添加 真实标签
     def create_ground_truth(self, datasets):
         """Add ground truths to the unlabeled set for evaluation.
 
@@ -97,7 +100,9 @@ class BTDataset(data.Dataset):
         """
         # 为评估无标签数据集添加真实标签
         # 遍历 self.instances 中的每个实例，给每个实例分配一个索引
-        # 将实例和对应的索引存储在字典中
+        #  # 创建一个映射字典，将每个实例映射到一个索引
+        
+        # self.instance 存储了size=hp.size or 1000 的无标签数据
         mp = {}
         for idx, inst in enumerate(self.instances):
             mp[inst] = idx
@@ -105,21 +110,23 @@ class BTDataset(data.Dataset):
         
         # 初始化真实标签集合
         self.ground_truth = set([])
+        
         for dataset in datasets:
             # 遍历数据集中的每对样本和标签
             for pair, label in zip(dataset.pairs, dataset.labels):
-                # 是一对：
+                # 如果标签为1，表示是一对实例
                 if int(label) == 1:
                     left, right = pair
                     left = left.strip()
                     right = right.strip()
-                    # 检查左右实例是否都在映射中
+                    
+                    # 检查左右实例是否都在映射中 / 有截取
                     if left in mp and right in mp:
                         left, right = mp[left], mp[right]
                         self.ground_truth.add((left, right))
                         self.ground_truth.add((right, right))
         
-        # 打印真实标签集合的长度
+        # 打印真实标签集合的长度(所有的数据train+test+valid 在instance之中)
         print(len(self.ground_truth))
 
     @staticmethod

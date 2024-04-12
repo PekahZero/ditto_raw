@@ -12,7 +12,8 @@ from sklearn.metrics import confusion_matrix
 def bootstrap(model, hp, blocked=True):
     """Construct a new training set based on similarity for em
     """
-    pos_factor = neg_factor = hp.multiplier
+    # 初始化正负样本倍增因子
+    multiplier = pos_factor = neg_factor = hp.multiplier
 
     train_path = os.path.join('../data/%s/%s/train.txt' % \
                               (hp.task_type, hp.task))
@@ -22,30 +23,38 @@ def bootstrap(model, hp, blocked=True):
                          max_len=hp.max_len,
                          size=None,
                          da=None)
-
+    
+    # 如果两个数据已经成对  batch is pair 
     if blocked:
         train_iter = data.DataLoader(dataset=dataset,
                                batch_size=hp.batch_size//2,    # half of barlow twins'
                                shuffle=False,
                                num_workers=0,
                                collate_fn=DMDataset.pad)
-
+        
+        # 存储所有相似性分数
         all_sims = []
         for i, batch in enumerate(train_iter):
             x1, x2, _, _ = batch
 
-            # compute similarity
+            # compute similarity # 计算相似性 
+            # cat(x1, x2)
+            # [:batch size]
             x1 = x1.to(model.device)
             x2 = x2.to(model.device)
             with torch.no_grad():
                 batch_size = len(x1)
-                x = torch.cat((x1, x2), dim=0)
+                x = torch.cat((x1, x2), dim=0) 
                 z = model.projector(model.bert(x)[0][:, 0, :])
                 z = F.normalize(z, dim=1)
                 z1 = z[:batch_size]
                 z2 = z[batch_size:]
+                # 相似性计算：使用规范化后的表示向量计算它们之间的相似性。
+                # 采用的是余弦相似度的计算方法，即将两个向量点积并进行求和。
                 similarity = torch.sum(z1 * z2, dim=-1)
                 all_sims += similarity.cpu().numpy().tolist()
+    
+    
     else:
         # blocking result is not available: construct dataset live
         path = '../data/er_magellan/%s' % hp.task
@@ -95,8 +104,15 @@ def bootstrap(model, hp, blocked=True):
     # all_sims = all_jaccard
 
     # get similarity threshold
-    N = len(dataset)
-    pos_threshold = 0.0
+    
+    N = len(dataset) # 计算样本数量
+    tar_size = hp.size # 目标使用样本的数量
+    # 尺寸匹配
+    while tar_size * multiplier > N:
+        tar_size = tar_size//2
+    print("tar_size ", tar_size)  
+
+    pos_threshold = 0.0 # 初始化相似性阈值
     neg_threshold = 1.0
     pos_sims, neg_sims = [], []
 
@@ -113,31 +129,71 @@ def bootstrap(model, hp, blocked=True):
     # pos_threshold = np.mean(pos_sims)
     # neg_threshold = np.mean(neg_sims)
 
-    # method 3
+    # method 3 
+    # 计算正负样本数量
     pos_cnt = 0
     neg_cnt = 0
+    
+    # 先选取小部分的数据，进行比例的估计
+
+    print("hp.size %d N %d"% (hp.size, N))
     for i in range(min(hp.size, N)):
         if dataset.labels[i] == 0:
             neg_cnt += 1
         else:
             pos_cnt += 1
 
+    # 扩大 计算新的正负样本数量
     new_pos_cnt = pos_cnt * (pos_factor - 1)
     new_neg_cnt = neg_cnt * (neg_factor - 1)
-    sims_sorted = sorted(all_sims[hp.size:])
+    print("new_pos_cnt", new_pos_cnt, "new_neg_cnt", new_neg_cnt)
+    
+    # 再进行匹配？
+    
+    # 对相似性分数排序
+    sims_sorted = sorted(all_sims[tar_size:])
+    print("len of sims_sorted: ", len(sims_sorted))
+    len_max = len(sims_sorted)
+    
+    while new_pos_cnt >= len_max or new_neg_cnt >= len_max :
+        new_pos_cnt = new_pos_cnt // 2 + 1
+        new_neg_cnt = new_neg_cnt // 2 + 1
+           
+        # 均不越界的情况下
+    # if new_pos_cnt < len_max and new_neg_cnt < len_max:
     pos_threshold = sims_sorted[-new_pos_cnt]
     neg_threshold = sims_sorted[new_neg_cnt]
 
+        
+    # # 均不越界的情况下
+    # if new_pos_cnt < len_max and new_neg_cnt < len_max:
+    #     pos_threshold = sims_sorted[-new_pos_cnt]
+    #     neg_threshold = sims_sorted[new_neg_cnt]
+    # else:
+    #     for i in range(min(hp.size, N)):
+    #         # 负样本--修改pos--取大
+    #         if dataset.labels[i] == 0:
+    #             neg_sims.append(all_sims[i])
+    #             pos_threshold = max(pos_threshold, all_sims[i])
+    #         # 正样本--修改neg--取小
+    #         else:
+    #             pos_sims.append(all_sims[i])
+    #             neg_threshold = min(neg_threshold, all_sims[i])
+        
+    
     # label all
     new_pairs, new_labels = [], []
     ground_truth = []
-    correct = 0
+    correct = 0 
+    
     for i in range(N):
-        if i < hp.size and not hp.zero:
+        # 只是用hp.size 的数据
+        if i < tar_size and not hp.zero:
             new_pairs.append(dataset.pairs[i])
             new_labels.append(dataset.labels[i])
             ground_truth.append(dataset.labels[i])
             correct += 1
+        # 无监督学习 使用zero label / 超过size的部分，
         else:
             if all_sims[i] > pos_threshold:
                 new_pairs.append(dataset.pairs[i])
@@ -155,7 +211,7 @@ def bootstrap(model, hp, blocked=True):
 
     # debug
     print(pos_threshold, neg_threshold, pos_threshold > neg_threshold, len(new_pairs))
-
+    
     print('original_ratio =', sum(dataset.labels[:hp.size]) / hp.size)
     print('new_ratio =', sum(new_labels) / len(new_labels))
     print('acc =', correct / len(new_labels))
@@ -169,7 +225,7 @@ def bootstrap(model, hp, blocked=True):
 
     dataset.pairs = new_pairs
     dataset.labels = new_labels
-    return dataset, TPR, TNR, FPR, FNR
+    return dataset, TPR, TNR, FPR, FNR, 
 
 
 def bootstrap_cleaning(model, hp, pos_factor=4, neg_factor=4):

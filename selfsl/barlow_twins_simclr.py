@@ -21,7 +21,7 @@ from sklearn.cluster import KMeans
 from transformers import AutoModel
 from transformers import AdamW, get_linear_schedule_with_warmup
 from torch.utils import data
-# from apex import amp
+from apex import amp
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from .augment import Augmenter
@@ -31,8 +31,9 @@ from .block import evaluate_blocking
 from .bootstrap import bootstrap, bootstrap_cleaning
 
 lm_mp = {'roberta': 'roberta-base',
-         'bert': 'bert-base-uncased',
-         'distilbert': 'distilbert-base-uncased'}
+         'distilbert': 'distilbert-base-uncased',
+         'xlnet': 'xlnet-large-cased',
+         'bert': 'bert-base-uncased'}
 
 def off_diagonal(x):
     # return a flattened view of the off-diagonal elements of a square matrix
@@ -108,6 +109,14 @@ class BarlowTwinsSimCLR(nn.Module):
             batch_size = len(y1)
             y1 = y1.to(self.device) # original
             y2 = y2.to(self.device) # augment
+            
+            # 如果da == 'cutoff'，
+            # 表示采用截断处理方式，会对输入数据进行截断处理，
+            # 并使用BERT模型的词嵌入和位置嵌入来构造新的数据y2_word_embeds。
+            # 具体操作包括对y2的词嵌入进行修改，
+            # 以及对位置嵌入进行采样和相应修改。
+            # 最后将y1和y2的词嵌入拼接在一起，得到y_embeds，
+            # 再通过BERT模型编码得到表示句子语义的向量z
             if da == 'cutoff':
                 seq_len = y2.size()[1]
                 y1_word_embeds = self.bert.embeddings.word_embeddings(y1)
@@ -136,13 +145,20 @@ class BarlowTwinsSimCLR(nn.Module):
                 # cat y1 and y2 for faster training
                 y = torch.cat((y1, y2))
                 z = self.bert(y)[0][:, 0, :]
-            z = self.projector(z)
-
+                z = self.projector(z)
+# 如果flag为0，采用SimCLR方法，使用信息最大化的对比损失（info_nce_loss）计算损失值。
+# 具体过程包括计算特征向量z的对比损失的logits和labels，然后通过交叉熵损失函数计算总体损失值。
             if flag == 0:
                 # simclr
                 logits, labels = self.info_nce_loss(z, batch_size, 2)
                 loss = self.criterion(logits, labels)
                 return loss
+# 如果flag为1，采用Barlow Twins方法，
+# 首先将z分成两部分z1和z2，然后计算它们之间的经验交叉相关矩阵c。
+# 之后根据交叉相关矩阵c，计算损失值。
+# 具体包括对交叉相关矩阵的对角线元素和非对角线元素进行平方和计算，
+# 并根据超参数scale_loss和lambd进行加权求和得到最终的损失值。
+
             elif flag == 1:
                 # barlow twins
                 z1 = z[:batch_size]
@@ -183,11 +199,11 @@ class BarlowTwinsSimCLR(nn.Module):
                 enc2 = enc[batch_size:] # (batch_size, emb_size)
                 # return self.fc(torch.cat((enc1, enc2, (enc1 - enc2).abs()), dim=1)) # .squeeze() # .sigmoid()
                 return self.fc(torch.cat((enc_pair, (enc1 - enc2).abs()), dim=1)) # .squeeze() # .sigmoid()
-            else: # cleaning
-                x1 = y1
-                x1 = x1.to(self.device) # (batch_size, seq_len)
-                enc = self.projector(self.bert(x1)[0][:, 0, :]) # (batch_size, emb_size)
-                return self.fc(enc)
+            # else: # cleaning
+            #     x1 = y1
+            #     x1 = x1.to(self.device) # (batch_size, seq_len)
+            #     enc = self.projector(self.bert(x1)[0][:, 0, :]) # (batch_size, emb_size)
+            #     return self.fc(enc)
 
 def evaluate(model, iterator, threshold=None, ec_task=None, dump=False):
     """Evaluate a model on a validation/test dataset
@@ -208,12 +224,18 @@ def evaluate(model, iterator, threshold=None, ec_task=None, dump=False):
     all_y = []
     all_probs = []
     with torch.no_grad():
-        for batch in tqdm(iterator):
+        for batch in iterator:
             if len(batch) == 4:
                 x1, x2, x12, y = batch
+                x1 = x1.cuda()
+                x2 = x2.cuda()
+                x12 = x12.cuda()
+                # y = y.cuda()
                 logits = model(2, x1, x2, x12)
             else:
                 x, y = batch
+                x = x.cuda()
+                # y = y.cuda()
                 logits = model(2, x, None, None)
 
             probs = logits.softmax(dim=1)[:, 1]
@@ -295,19 +317,43 @@ def evaluate(model, iterator, threshold=None, ec_task=None, dump=False):
         return f1, p, r, best_th
 
 
-# 生成批次数据，使得相似的条目被分组在一起
+# def creat_iter_batches(u_set, clusters, batch_size):
+#     N = len(u_set)
+#     indices = []
+#     random.shuffle(clusters)
+#     # 随机洗牌簇的顺序
+    
+#     for c in clusters: # 随机洗牌每个簇中的索引
+#         random.shuffle(c)
+#         indices += c
+#     # 遍历每个簇，随机洗牌其中的索引
+    
+#     batch = []
+#     # 根据洗牌后的索引构建批次数据，并进行填充
+#     for i, idx in enumerate(indices):
+#         # batch.append(u_set[i]) # 将数据集中的样本按照洗牌后的顺序加入批次中 u_set[i] ?? 
+#         batch.append(u_set[idx]) #  u_set.instance[idx]
+#         if len(batch) == batch_size or i == N - 1: # 如果批次数据达到指定大小或者遍历完所有数据
+#             yield u_set.pad(batch) # 引用？
+#             batch.clear()
+            
+# # 生成批次数据，使得相似的条目被分组在一起
 def create_batches(u_set, batch_size, n_ssl_epochs, num_clusters=50):
-    """Generate batches such that similar entries are grouped together.
-    """
+    # 对无标签数据集进行基于TF-IDF向量化的特征提取
     N = len(u_set)
     tfidf = TfidfVectorizer().fit_transform(u_set.instances)
 
+    # 使用KMeans算法将数据集划分为指定数量的簇
     kmeans = KMeans(n_clusters=num_clusters,n_init=10).fit(tfidf)
 
+    # 将每个样本分配到对应的簇中
+    # 生成 num_clusters 个簇
     clusters = [[] for _ in range(num_clusters)]
     for idx, label in enumerate(kmeans.labels_):
-        clusters[label].append(idx)
-
+        clusters[label].append(idx) 
+        
+    # 计算簇内的假阴性率（False Negative Rate）
+    # 即在同一簇中被误判为不相似的实例对的比例。
     # report FNR within clusters
     if u_set.ground_truth is not None:
         total = 0
@@ -320,26 +366,35 @@ def create_batches(u_set, batch_size, n_ssl_epochs, num_clusters=50):
                     total += 1
                     if (idx1, idx2) in u_set.ground_truth:
                         matches += 1
-        mlflow.log_metric("clustering_FNR", matches / total)
-
-    # concatenate
-    for _ in range(n_ssl_epochs):
+        fnr = matches / total  # 计算假阴性率
+        mlflow.log_metric("clustering_FNR", fnr)
+    
+    def create_iter():
         indices = []
         random.shuffle(clusters)
         # 随机洗牌簇的顺序
         
-        for c in clusters:
+        for c in clusters: # 随机洗牌每个簇中的索引
             random.shuffle(c)
             indices += c
         # 遍历每个簇，随机洗牌其中的索引
-
+        
         batch = []
         # 根据洗牌后的索引构建批次数据，并进行填充
         for i, idx in enumerate(indices):
-            batch.append(u_set[i])
-            if len(batch) == batch_size or i == N - 1:
-                yield u_set.pad(batch)
+            # batch.append(u_set[i]) # 将数据集中的样本按照洗牌后的顺序加入批次中 u_set[i] ?? 
+            batch.append(u_set[idx]) #  u_set.instance[idx]
+            if len(batch) == batch_size or i == N - 1: # 如果批次数据达到指定大小或者遍历完所有数据
+                yield u_set.pad(batch) # 引用？
                 batch.clear()
+                
+    for _ in range(n_ssl_epochs):
+        # print("ssl_epoch", n_ssl_epochs)
+        yield create_iter()
+    
+# 生成批次数据，使得相似的条目被分组在一起
+
+
 
 
 # 单步执行 train_step
@@ -360,8 +415,11 @@ def selfsl_step(train_nolabel_iter, train_iter, model, optimizer, scheduler, hp)
     
     loss_list = []
     # train Barlow Twins or SimCLR
+    
     for i, batch in enumerate(train_nolabel_iter):
         yA, yB = batch
+        yA = yA.cuda()
+        yB = yB.cuda()
         optimizer.zero_grad()
         # loss = model(i%2, yA, yB, [], da=hp.da)
         if hp.ssl_method == 'simclr':
@@ -377,22 +435,25 @@ def selfsl_step(train_nolabel_iter, train_iter, model, optimizer, scheduler, hp)
             loss2 = model(1, yA, yB, [], da=hp.da, cutoff_ratio=hp.cutoff_ratio)
             loss = alpha * loss1 + (1 - alpha) * loss2
 
-        # if hp.fp16:
-        #     with amp.scale_loss(loss, optimizer) as scaled_loss:
-        #         scaled_loss.backward()
-        # else:
-        #     loss.backward()
-        loss.backward()
+        # print('loss:' , loss.item())
+        loss_list.append(loss.item())
+        
+        if hp.fp16:
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
+        else:
+            loss.backward()
+        # loss.backward()
         
         optimizer.step()
         scheduler.step()
-        loss_list.append(loss.item().copy())
         
         if i % 10 == 0: # monitoring
             print(f"    step: {i}, loss: {loss.item()}")
         #print(f"    step: {i}, loss: {loss.item()}")
         
         del loss
+        
     return sum(loss_list)/len(loss_list)
 
 
@@ -415,25 +476,34 @@ def fine_tune_step(train_iter, model, optimizer, scheduler, hp):
     for i, batch in enumerate(train_iter):
         optimizer.zero_grad()
         if len(batch) == 4:
+
             x1, x2, x12, y = batch
+            
+            x1 = x1.cuda()
+            x2 = x2.cuda()
+            x12 = x12.cuda()
+            y = y.cuda()
+
             prediction = model(2, x1, x2, x12)
         else:
             x, y = batch
+            x = x.cuda()
+            y = y.cuda()
             prediction = model(2, x, None, None)
 
         loss = criterion(prediction, y.to(model.device))
         # loss = criterion(prediction, y.float().to(model.device))
-        # if hp.fp16:
-        #     with amp.scale_loss(loss, optimizer) as scaled_loss:
-        #         scaled_loss.backward()
-        # else:
-        #     loss.backward()
+        if hp.fp16:
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
+        else:
+            loss.backward()
         
-        loss.backward()
+        # loss.backward()
         
         optimizer.step()
         scheduler.step()
-        loss_list.append(loss.item().copy())
+        loss_list.append(loss.item())
         if i % 10 == 0: # monitoring
             print(f"    fine tune step: {i}, loss: {loss.item()}")
         del loss
@@ -444,6 +514,7 @@ def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
     """Train and evaluate the model
 
     Args:
+        trainset_nolabel (BTDataset) : 
         trainset (DMDataset): the training set
         validset (DMDataset): the validation set
         testset (DMDataset): the test set
@@ -462,7 +533,7 @@ def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
     
     # 是否使用聚类：
     # 不使用聚类
-    if hp.clustering:
+    if not hp.clustering:
         # 用于无标签数据的数据加载器
         train_nolabel_iter = data.DataLoader(dataset=trainset_nolabel,
                                              batch_size=hp.batch_size,
@@ -472,7 +543,7 @@ def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
     # 使用聚类----------------------------------------------------------------------------
     else:
         # 根据超参数创建批次
-        train_nolabel_iter = create_batches(trainset_nolabel,
+        train_nolabel_iters = create_batches(trainset_nolabel,
                                             hp.batch_size,
                                             hp.n_ssl_epochs,
                                             num_clusters=hp.num_clusters)
@@ -492,23 +563,24 @@ def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
                                  shuffle=False,
                                  num_workers=0,
                                  collate_fn=testset.pad)
-
+    all_pairs_iter = None
+    
     # if all_pairs.txt is avaialble
      # 如果all_pairs.txt可用
-    all_pairs_path = 'data/%s/%s/all_pairs.txt' % (hp.task_type, hp.task)
-    if os.path.exists(all_pairs_path):
-        all_pair_set = DMDataset(all_pairs_path,
-                         lm=hp.lm,
-                         size=None,
-                         max_len=hp.max_len)
+    # all_pairs_path = 'data/%s/%s/all_pairs.txt' % (hp.task_type, hp.task)
+    # if os.path.exists(all_pairs_path):
+    #     all_pair_set = DMDataset(all_pairs_path,
+    #                      lm=hp.lm,
+    #                      size=None,
+    #                      max_len=hp.max_len)
 
-        all_pairs_iter = data.DataLoader(dataset=all_pair_set,
-                                     batch_size=hp.batch_size*16,
-                                     shuffle=False,
-                                     num_workers=0,
-                                     collate_fn=testset.pad)
-    else:
-        all_pairs_iter = None
+    #     all_pairs_iter = data.DataLoader(dataset=all_pair_set,
+    #                                  batch_size=hp.batch_size*16,
+    #                                  shuffle=False,
+    #                                  num_workers=0,
+    #                                  collate_fn=testset.pad)
+    # else:
+    #     all_pairs_iter = None
 
     # 初始化模型、优化器和LR调度器
     # initialize model, optimizer, and LR scheduler
@@ -520,9 +592,10 @@ def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
     model = model.cuda(device=device)
     
     optimizer = AdamW(model.parameters(), lr=hp.lr,no_deprecation_warning=True)
-    # if hp.fp16:
-    #     opt_level = 'O2' if hp.ssl_method == 'combined' else 'O2'
-    #     model, optimizer = amp.initialize(model, optimizer, opt_level=opt_level)
+    
+    if hp.fp16:
+        opt_level = 'O2' if hp.ssl_method == 'combined' else 'O2'
+        model, optimizer = amp.initialize(model, optimizer, opt_level=opt_level)
 
     # number of steps
     # 步数
@@ -558,22 +631,21 @@ def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
         # bootstrap训练集-----------------------------------------------------
         #  (hp.bootstrap or hp.zero && task==em
         if epoch == num_ssl_epochs + 1 and hp.task_type in ['er_magellan'] and (hp.bootstrap or hp.zero):
-            if hp.task_type == 'er_magellan':
-                new_trainset, TPR, TNR, FPR, FNR = bootstrap(model, hp)
-                # logging
-                writer.add_scalars(run_tag,
-                                   {'new_size': len(new_trainset),
-                                    'TPR': TPR,
-                                    'TNR': TNR,
-                                    'FPR': FPR,
-                                    'FNR': FNR}, epoch)
 
-                new_size = len(new_trainset)
-                for variable in ["new_size", "TPR", "TNR", "FPR", "FNR"]:
-                    mlflow.log_metric(variable, eval(variable))
-            elif hp.task_type == 'cleaning':
-                new_trainset = bootstrap_cleaning(model, hp)
+            new_trainset, TPR, TNR, FPR, FNR = bootstrap(model, hp)
+            # logging
+            writer.add_scalars(run_tag,
+                                {'new_size': len(new_trainset),
+                                'TPR': TPR,
+                                'TNR': TNR,
+                                'FPR': FPR,
+                                'FNR': FNR}, epoch)
 
+            new_size = len(new_trainset)
+            for variable in ["new_size", "TPR", "TNR", "FPR", "FNR"]:
+                mlflow.log_metric(variable, eval(variable))
+
+            # 改变训练集
             train_iter = data.DataLoader(dataset=new_trainset,
                                          batch_size=hp.batch_size//2,    # half of barlow twins'
                                          shuffle=True,
@@ -582,107 +654,109 @@ def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
 
         # train-------------------------------------------------------------------------
         print(f"epoch {epoch}")
-        model.train()
+        
         # pre-train ------------------------------------
         if epoch <= num_ssl_epochs:
+            model.train()
+            if hp.clustering:
+                train_nolabel_iter = next(train_nolabel_iters)
             loss_avr = selfsl_step(train_nolabel_iter, train_iter, model, optimizer, scheduler, hp)
             scalars = {"ssl_loss": loss_avr}
             writer.add_scalars(run_tag, scalars, epoch)
             
-            # logging blocking--------------------
-            # k=20 则有20个
-            if hp.blocking:
-                # 返回的 recal_score，数据集大小
-                recall, new_size = evaluate_blocking(model, hp)
+            # # logging blocking--------------------
+            # # k=20 则有20个
+            # if hp.blocking:
+            #     # 返回的 recal_score，数据集大小
+            #     recall, new_size = evaluate_blocking(model, hp)
                 
-                if isinstance(recall, list):
-                    scalars = {}
-                    for i in range(len(recall)):
-                        scalars['recall_%d' % i] = recall[i]
-                        scalars['new_size_%d' % i] = new_size[i]
-                else:
-                    scalars = {'recall': recall,
-                               'new_size': new_size}
-                # 不再体现
-                writer.add_scalars(run_tag+'blocking', scalars, epoch)
+            #     if isinstance(recall, list):
+            #         scalars = {}
+            #         for i in range(len(recall)):
+            #             scalars['recall_%d' % i] = recall[i]
+            #             scalars['new_size_%d' % i] = new_size[i]
+            #     else:
+            #         scalars = {'recall': recall,
+            #                    'new_size': new_size}
+            #     # 不再体现
+            #     writer.add_scalars(run_tag+'blocking', scalars, epoch)
                 
-                for sz, r in zip(new_size, recall):
-                    mlflow.log_metric("recall_%d" % sz, r)
+            #     for sz, r in zip(new_size, recall):
+            #         mlflow.log_metric("recall_%d" % sz, r)
                 
-                print(f"epoch {epoch}: recall={recall}, num_candidates={new_size}")
+            #     print(f"epoch {epoch}: recall={recall}, num_candidates={new_size}")
                 
         # 微调------------------
         else:
+            model.train()
             loss_avr = fine_tune_step(train_iter, model, optimizer, scheduler, hp)
-
-            # eval
-            model.eval()
-            dev_f1, dev_p, dev_r, th = evaluate(model, valid_iter)
-            # if hp.task_type == 'cleaning':
-            #     pass
-            # else:
-            # em
-            test_f1, test_p, test_r = evaluate(model, test_iter, threshold=th, dump=True)
-            if dev_f1 > best_dev_f1:
-                best_dev_f1 = dev_f1
-                best_test_f1 = test_f1
-                # 迭代模型
-                if hp.save_ckpt :
-                    # create the directory if not exist
-                    directory = os.path.join(hp.logdir, hp.task)
-                    if not os.path.exists(directory):
-                        os.makedirs(directory)
-
-                    # save the checkpoints for each component
-                    ckpt_path = os.path.join(hp.logdir, hp.task, 'ssl.pt')
-                    # config_path = os.path.join(hp.logdir, hp.task, 'config.json')
-                    ckpt = {'model': model.state_dict(),
-                            'optimizer': optimizer.state_dict(),
-                            'scheduler': scheduler.state_dict(),
-                            'epoch': epoch}
-                    torch.save(ckpt, ckpt_path)
-                    
-            print(f"epoch {epoch}: dev_f1={dev_f1}, f1={test_f1}, best_f1={best_test_f1}")
-            print(f"epoch {epoch}: dev_p={dev_p}, dev_r={dev_r}, test_p={test_p}, test_r={test_r}")
-
-            # run on all pairs
-            if epoch == hp.n_epochs and all_pairs_iter is not None:
-                evaluate(model, all_pairs_iter, threshold=th, dump=True)
-                # evaluate(model, test_iter, threshold=th, dump=True)
-
-            # logging
-            scalars = {'dev_f1': dev_f1,
-                        'dev_p': dev_p,
-                        'dev_r': dev_r,
-                        'test_f1': test_f1,
-                        'test_p': test_p,
-                        'test_r': test_r,
-                        'best_f1' : best_test_f1,
-                        'th':th,
-                        'finetune_loss': loss_avr}
-            for variable in ["dev_f1", "dev_p", "dev_r", "test_f1", "test_p", "test_r","best_test_f1","th","loss_avr"]:
-                mlflow.log_metric(variable, eval(variable))
+            scalars = {"finetune_loss": loss_avr}
             writer.add_scalars(run_tag, scalars, epoch)
 
+        # eval
+        model.eval()
+        dev_f1, dev_p, dev_r, th = evaluate(model, valid_iter)
+        test_f1, test_p, test_r = evaluate(model, test_iter, threshold=th, dump=True)
+        
+        if dev_f1 > best_dev_f1:
+            best_dev_f1 = dev_f1
+            best_test_f1 = test_f1
+            
+            # 更新模型
+            if hp.save_ckpt :
+                # create the directory if not exist
+                directory = os.path.join(hp.logdir, hp.task)
+                if not os.path.exists(directory):
+                    os.makedirs(directory)
+
+                # save the checkpoints for each component
+                ckpt_path = os.path.join(hp.logdir, hp.task, 'ssl.pt')
+                # config_path = os.path.join(hp.logdir, hp.task, 'config.json')
+                ckpt = {'model': model.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'scheduler': scheduler.state_dict(),
+                        'epoch': epoch}
+                torch.save(ckpt, ckpt_path)
+                
+        print(f"epoch {epoch}: dev_f1={dev_f1}, test_f1={test_f1}, best_f1={best_test_f1}")
+        print(f"epoch {epoch}: dev_p={dev_p}, dev_r={dev_r}, test_p={test_p}, test_r={test_r}")
+
+        # run on all pairs
+        if epoch == hp.n_epochs and all_pairs_iter is not None:
+            evaluate(model, all_pairs_iter, threshold=th, dump=True)
+            # evaluate(model, test_iter, threshold=th, dump=True)
+
+        # logging
+        scalars = {'dev_f1': dev_f1,
+                    'dev_p': dev_p,
+                    'dev_r': dev_r,
+                    'test_f1': test_f1,
+                    'test_p': test_p,
+                    'test_r': test_r,
+                    'best_f1' : best_test_f1,
+                    'th':th,
+                    'finetune_loss': loss_avr}
+        for variable in ["dev_f1", "dev_p", "dev_r", "test_f1", "test_p", "test_r","best_test_f1","th","loss_avr"]:
+            mlflow.log_metric(variable, eval(variable))
+        writer.add_scalars(run_tag, scalars, epoch)
+
         # 保存checkpoint--------------------------------------
-        # saving checkpoint at the last ssl step
-        # ssl_epoch 结束后保存模型，之后的进度不再保存？
-        # 先保存一次
+        # saving checkpoint at the last ssl step 
         if hp.save_ckpt and epoch == num_ssl_epochs:
             # create the directory if not exist
-            directory = os.path.join(hp.logdir, hp.task)
+            directory = os.path.join(hp.logdir, hp.task+'_ssl')
             if not os.path.exists(directory):
                 os.makedirs(directory)
 
             # save the checkpoints for each component
-            ckpt_path = os.path.join(hp.logdir, hp.task, 'ssl.pt')
-            config_path = os.path.join(hp.logdir, hp.task, 'config.json')
+            ckpt_path = os.path.join(hp.logdir, hp.task+'_ssl', 'ssl.pt')
+            config_path = os.path.join(hp.logdir, hp.task+'_ssl', 'config.json')
             ckpt = {'model': model.state_dict(),
                     'optimizer': optimizer.state_dict(),
                     'scheduler': scheduler.state_dict(),
                     'epoch': epoch}
             torch.save(ckpt, ckpt_path)
-
+        
         # -------------------------------------------------------
         # check if learning rate drops to 0
         if scheduler.get_last_lr()[0] < 1e-9:
@@ -694,6 +768,25 @@ def train(trainset_nolabel, trainset, validset, testset, run_tag, hp):
         
         # 清除缓存
         # torch.cuda.empty_cache()
-          
-
+        
+        if hp.blocking:
+            # 返回的 recal_score，数据集大小
+            recall, new_size = evaluate_blocking(model, hp)
+            
+            if isinstance(recall, list):
+                scalars = {}
+                for i in range(len(recall)):
+                    scalars['recall_%d' % i] = recall[i]
+                    scalars['new_size_%d' % i] = new_size[i]
+            else:
+                scalars = {'recall': recall,
+                            'new_size': new_size}
+            # 不再体现
+            writer.add_scalars(run_tag+'blocking', scalars, epoch)
+            
+            for sz, r in zip(new_size, recall):
+                mlflow.log_metric("recall_%d" % sz, r)
+            
+            print(f"epoch {epoch}: recall={recall}, num_candidates={new_size}")
+        
     writer.close()

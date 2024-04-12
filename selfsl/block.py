@@ -34,9 +34,11 @@ def encode_all(dataset, model, hp):
 
     all_encs = []
     with torch.no_grad():
-        for batch in tqdm(iterator):
+        for batch in iterator:
             x, _ = batch
             x = x.to(model.device)
+            
+            # 只使用BERT模型的输出的第一个token的编码作为表示
             if hasattr(hp, "lm_only") and hp.lm_only:
                 enc = model.bert(x)[0][:, 0, :]
             else:
@@ -46,6 +48,11 @@ def encode_all(dataset, model, hp):
 
     res = np.array(all_encs)
     res = [v / np.linalg.norm(v) for v in res] # 对编码表示进行归一化处理
+    
+    # 在上述代码中，返回的res是一个NumPy数组
+    # 二维数组，其中每一行代表一个数据记录的编码表示。
+    # 如果有N条数据记录，每条记录的编码表示是一个D维的向量，
+    # 那么res的形状将是(N, D)，其中N是数据记录的数量，D是编码向量的维度。
     return res
 
 
@@ -71,11 +78,13 @@ def run_blocking(left_dataset, right_dataset, model, hp):
 
     # matmul to compute similarity
     # 使用矩阵乘法计算相似度并找到候选配对
-    # 选取k个
+    # 选取k个 / 选择相似度>th的数据
+    # 优先选择k， 没有k再考虑th
     pairs = blocked_matmul(mata, matb,
                            threshold=hp.threshold,
                            k=hp.k,
                            batch_size=hp.batch_size)
+    print("candidates number after blocking: ", len(pairs))
     return pairs
 
 
@@ -188,6 +197,7 @@ def evaluate_blocking(model, hp):
     pairs = run_blocking(left_dataset, right_dataset, model, hp)
 
     print('Read ground truth')
+    # 读取真正的标签
     ground_truth, total = read_ground_truth(path)
 
 # 如果超参数 hp.k 不存在（为空），则计算所有候选配对的召回率
@@ -195,7 +205,7 @@ def evaluate_blocking(model, hp):
 # 候选集大小即为配对的数量
     if hp.k:
         recalls, sizes = [], []
-        for k in tqdm(range(1, hp.k+1)):
+        for k in range(1, hp.k+1):
             recall, size = evaluate_pairs(pairs, ground_truth, k)
             recalls.append(recall)
             sizes.append(size)

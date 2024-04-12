@@ -25,15 +25,23 @@ def blocked_matmul(mata, matb,
     Returns:
         list of tuples: the pairs of similar vectors' indices and the similarity
     """
+    # 每行在matb中与mata中相似度最高的前k个向量
+    # 并将它们的索引以及相似度加入到结果列表中
     mata = np.array(mata)
     matb = np.array(matb)
     results = []
-    for start in tqdm(range(0, len(matb), batch_size)):
-        block = matb[start:start+batch_size]
-        sim_mat = np.matmul(mata, block.transpose())
+    # 如果指定了k，函数将返回每行中与另一个矩阵中最相似的前k个向量。
+    # 如果指定了threshold，函数将返回所有余弦相似度大于等于阈值的向量对。
+    for start in range(0, len(matb), batch_size):
+        # mata . block.T()
+        block = matb[start:start+batch_size] # 
+        sim_mat = np.matmul(mata, block.transpose()) # np.matmul 点积 # 相似度矩阵
         if k is not None:
-            indices = np.argpartition(-sim_mat, k, axis=0)
-            for row in indices[:k]:
+            indices = np.argpartition(-sim_mat, k, axis=0) 
+            # 找出sim_mat中每列（axis=0）前k个最大元素的索引
+            # 因为这里用的是-sim_mat，所以实际上找出的是前k个最小值的索引。
+            for row in indices[:k]: 
+                # 这里遍历了indices数组的前k行，也就是针对每一列在matb中找到了与mata中相似度最高的k个向量的索引。
                 for idx_b, idx_a in enumerate(row):
                     idx_b += start
                     results.append((idx_a, idx_b, sim_mat[idx_a][idx_b-start]))
@@ -65,9 +73,15 @@ def evaluate(model, iterator, threshold=None):
         for batch in iterator:
             if model.task_type == 'er_magellan':
                 x1, x2, x12, y = batch
+                x1 = x1.cuda()
+                x2 = x2.cuda()
+                x12 = x12.cuda()
+                # y = y.cuda()
                 logits = model(x1, x2, x12)
             else:
                 x, y = batch
+                x = x.cuda()
+                # y = y.cuda()
                 logits = model(x)
 
             # print(probs)

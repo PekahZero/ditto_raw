@@ -4,7 +4,9 @@ import torch.nn as nn
 from transformers import AutoModel
 
 lm_mp = {'roberta': 'roberta-base',
-         'distilbert': 'distilbert-base-uncased'}
+         'distilbert': 'distilbert-base-uncased',
+         'xlnet': 'xlnet-large-cased',
+         'bert': 'bert-base-uncased'}
 
 class DMModel(nn.Module):
     """A baseline model for EM."""
@@ -21,7 +23,7 @@ class DMModel(nn.Module):
 
         self.device = device
         self.task_type = task_type
-        hidden_size = 768
+        hidden_size = 768 # hidden_size = self.bert.config.hidden_size
         if task_type == 'er_magellan':
             self.fc = torch.nn.Linear(hidden_size * 2, 2)
         else:
@@ -55,6 +57,7 @@ class DMModel(nn.Module):
 
             # fully connected
             return self.fc(torch.cat((enc_pair, (enc1 - enc2).abs()), dim=1)) # .squeeze() # .sigmoid()
+        
         else:
             x1 = x1.to(self.device) # (batch_size, seq_len)
             return self.fc(self.bert(x1)[0][:, 0, :])

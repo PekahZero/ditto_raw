@@ -17,7 +17,7 @@ from .dataset import DMDataset
 from torch.utils import data
 from transformers import AdamW, get_linear_schedule_with_warmup
 from tensorboardX import SummaryWriter
-# from apex import amp
+from apex import amp
 
 
 def train_step(train_iter, model, optimizer, scheduler, hp):
@@ -33,6 +33,7 @@ def train_step(train_iter, model, optimizer, scheduler, hp):
     Returns:
         None
     """
+    loss_list = []
     criterion = nn.CrossEntropyLoss()
     # criterion = nn.MSELoss()
     for i, batch in enumerate(train_iter):
@@ -40,26 +41,36 @@ def train_step(train_iter, model, optimizer, scheduler, hp):
 
         if len(batch) == 4:
             x1, x2, x12, y = batch
+            x1 = x1.cuda()
+            x2 = x2.cuda()
+            x12 = x12.cuda()
+            y = y.cuda()
             prediction = model(x1, x2, x12)
         else:
             x, y = batch
+            x = x.cuda()
+            y = y.cuda()
             prediction = model(x)
 
         loss = criterion(prediction, y.to(model.device))
         # loss = criterion(prediction, y.float().to(model.device))
-        # if hp.fp16:
-        #     with amp.scale_loss(loss, optimizer) as scaled_loss:
-        #         scaled_loss.backward()
-        # else:
-        #     loss.backward()
-        
-        loss.backward()
+        if hp.fp16:
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
+        else:
+            loss.backward()
+        # loss.backward()
         
         optimizer.step()
         scheduler.step()
+        
+        loss_list.append(loss.item())
+        
         if i % 10 == 0: # monitoring
             print(f"step: {i}, loss: {loss.item()}")
         del loss
+    return sum(loss_list)/len(loss_list)
+
 
 
 def train(trainset, validset, testset, run_tag, hp):
@@ -103,8 +114,8 @@ def train(trainset, validset, testset, run_tag, hp):
     model = model.cuda()
     optimizer = AdamW(model.parameters(), lr=hp.lr, no_deprecation_warning=True)
     
-    # if hp.fp16:
-    #     model, optimizer = amp.initialize(model, optimizer, opt_level='O2')
+    if hp.fp16:
+        model, optimizer = amp.initialize(model, optimizer, opt_level='O2')
     
     num_steps = (len(trainset) // hp.batch_size) * hp.n_epochs
     scheduler = get_linear_schedule_with_warmup(optimizer,
@@ -118,7 +129,7 @@ def train(trainset, validset, testset, run_tag, hp):
     for epoch in range(1, hp.n_epochs+1):
         # train
         model.train()
-        train_step(train_iter, model, optimizer, scheduler, hp)
+        loss_avr = train_step(train_iter, model, optimizer, scheduler, hp)
 
         # eval
         model.eval()
@@ -131,18 +142,23 @@ def train(trainset, validset, testset, run_tag, hp):
         print(f"epoch {epoch}: dev_f1={dev_f1}, f1={test_f1}, best_f1={best_test_f1}")
 
         # logging
-        scalars = {'f1': dev_f1,
-                   'p': dev_p,
-                   'r': dev_r,
-                   't_f1': test_f1,
-                   't_p': test_p,
-                   't_r': test_r}
+        # scalars = {'f1': dev_f1,
+        #            'p': dev_p,
+        #            'r': dev_r,
+        #            't_f1': test_f1,
+        #            't_p': test_p,
+        #            't_r': test_r}
+        scalars = {'dev_f1': dev_f1, 'test_f1': test_f1,
+            'dev_r': dev_r, 'test_r': test_r,
+            'dev_p': dev_p, 'test_p': test_p,
+            'best_f1' : best_test_f1,
+            'th': th,
+            "loss":loss_avr}
         writer.add_scalars(run_tag, scalars, epoch)
-        for variable in ["dev_f1", "dev_p", "dev_r", "test_f1", "test_p", "test_r"]:
+        for variable in ["dev_f1", "dev_p", "dev_r", "test_f1", "test_p", "test_r","th","loss_avr"]:
             mlflow.log_metric(variable, eval(variable))
             
         # 每个epoch进行Pytorch 缓存的清除
         torch.cuda.empty_cache()
     
-
     writer.close()
